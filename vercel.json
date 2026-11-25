@@ -1,0 +1,23 @@
+{
+	"$schema": "https://openapi.vercel.sh/vercel.json",
+	"framework": "vite",
+	"buildCommand": "npm run build",
+	"outputDirectory": "dist",
+	"headers": [
+		{
+			"source": "/files/(.*)",
+			"headers": [
+				{
+					"key": "X-Frame-Options",
+					"value": "SAMEORIGIN"
+				}
+			]
+		}
+	],
+	"rewrites": [
+		{
+			"source": "/((?!files|images|icons|assets|readme|macbook\\.png).*)",
+			"destination": "/index.html"
+		}
+	]
+}

@@ -1,0 +1,175 @@
+import { homeItems } from '#constants';
+import { Draggable } from '#lib/gsap-draggable';
+import { useLocationStore, useWindowStore } from '#store';
+import type { FinderNode } from '#types';
+import { useGSAP } from '@gsap/react';
+import clsx from 'clsx';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
+
+/**
+ * Desktop home surface for project folders.
+ * Clicking or double-clicking a folder opens Finder focused on that project.
+ */
+export const Home = (): ReactElement => {
+	const { setActiveLocation } = useLocationStore();
+	const { openWindow } = useWindowStore();
+	const containerRef = useRef<HTMLElement | null>(null);
+	const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+	const [isShortDesktop, setIsShortDesktop] = useState<boolean>(false);
+
+	useEffect(() => {
+		let resizeTimer: ReturnType<typeof window.setTimeout> | null = null;
+
+		const syncViewportMode = () => {
+			setIsShortDesktop(window.innerHeight < 980);
+		};
+
+		const handleResize = () => {
+			if (resizeTimer !== null) {
+				window.clearTimeout(resizeTimer);
+			}
+			resizeTimer = window.setTimeout(() => {
+				syncViewportMode();
+				resizeTimer = null;
+			}, 100);
+		};
+
+		syncViewportMode();
+		window.addEventListener('resize', handleResize);
+		return () => {
+			if (resizeTimer !== null) {
+				window.clearTimeout(resizeTimer);
+			}
+			window.removeEventListener('resize', handleResize);
+		};
+	}, []);
+
+	const openItem = (item: FinderNode) => {
+		if (item.kind === 'folder') {
+			// Select the target folder first, then open the Finder window shell.
+			setActiveLocation(item);
+			openWindow('finder');
+			return;
+		}
+
+		switch (item.fileType) {
+			case 'pdf':
+				openWindow('resume');
+				return;
+			case 'fig':
+			case 'url': {
+				if (!item.href) return;
+
+				try {
+					const safeUrl = new URL(item.href).toString();
+					window.open(safeUrl, '_blank', 'noopener,noreferrer');
+				} catch {
+					console.warn('Invalid home item URL', item);
+				}
+				return;
+			}
+			case 'txt':
+				openWindow('txtfile', item);
+				return;
+			case 'img':
+				openWindow('imgfile', item);
+				return;
+			default:
+				console.warn('Unhandled home item type', item);
+		}
+	};
+
+	useGSAP(() => {
+		const container = containerRef.current;
+		if (!container) return;
+
+		// Scope draggable targets to Home to avoid global selector collisions.
+		// dragClickables: true and minimumMovement ensures clicks aren't swallowed,
+		// and dragging only begins after moving more than 6px.
+		const items = container.querySelectorAll<HTMLElement>('.home-item');
+		const instances = Draggable.create(Array.from(items), {
+			dragClickables: true,
+			minimumMovement: 6,
+		});
+		return () => {
+			instances.forEach((instance) => {
+				instance.kill();
+			});
+		};
+	}, []);
+
+	useEffect(() => {
+		const handlePointerDown = (event: PointerEvent) => {
+			const target = event.target as HTMLElement | null;
+			if (target?.closest('.home-item')) return;
+			setSelectedItemId(null);
+		};
+
+		document.addEventListener('pointerdown', handlePointerDown);
+		return () => {
+			document.removeEventListener('pointerdown', handlePointerDown);
+		};
+	}, []);
+
+	const getHomeItemStyle = (index: number): React.CSSProperties => {
+		const topOffset = 84;
+		const rowGap = 132;
+		const rightOffset = 28;
+		const colGap = 190;
+
+		if (!isShortDesktop) {
+			return {
+				top: `${String(topOffset + index * rowGap)}px`,
+				right: `${String(rightOffset)}px`,
+			};
+		}
+
+		// On shorter desktops, switch to a clean 2-column layout.
+		const rowsPerColumn = Math.ceil(homeItems.length / 2);
+		const column = Math.floor(index / rowsPerColumn);
+		const row = index % rowsPerColumn;
+
+		return {
+			top: `${String(topOffset + row * rowGap)}px`,
+			right: `${String(rightOffset + column * colGap)}px`,
+		};
+	};
+
+	return (
+		<section id="home" ref={containerRef}>
+			<ul>
+				{homeItems.map((item, index) => (
+					<li
+						key={`${item.kind}-${String(item.id)}-${String(index)}`}
+						className={clsx(
+							'group home-item cursor-pointer',
+							selectedItemId === item.id && 'home-item-selected',
+							item.kind === 'folder' ? undefined : item.position,
+						)}
+						style={
+							item.kind === 'folder'
+								? getHomeItemStyle(index)
+								: undefined
+						}
+						onClick={() => {
+							setSelectedItemId(item.id);
+							openItem(item);
+						}}
+						onDoubleClick={() => {
+							openItem(item);
+						}}
+					>
+						<img
+							src={item.icon}
+							alt={item.name}
+							className="pointer-events-none select-none"
+						/>
+						<p className="pointer-events-none select-none">
+							<span className="home-item-label">{item.name}</span>
+						</p>
+					</li>
+				))}
+			</ul>
+		</section>
+	);
+};
